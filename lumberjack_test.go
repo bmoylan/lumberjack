@@ -590,6 +590,70 @@ func TestRotate(t *testing.T) {
 	existsWithContent(filename, b2, t)
 }
 
+func TestMaxTime(t *testing.T) {
+	currentTime = fakeTime
+	dir := makeTempDir("TestRotate_MaxTime", t)
+	defer os.RemoveAll(dir)
+
+	filename := logFile(dir)
+
+	l := &Logger{
+		Filename: filename,
+		MaxTime:  time.Hour,
+	}
+	defer l.Close()
+
+	b1 := []byte("1\n")
+	n, err := l.Write(b1)
+	isNil(err, t)
+	equals(len(b1), n, t)
+
+	existsWithContent(filename, b1, t)
+	fileCount(dir, 1, t)
+
+	newFakeTime()
+
+	b2 := []byte("2\n")
+	n, err = l.Write(b2)
+	isNil(err, t)
+	equals(len(b2), n, t)
+	// we need to wait a little bit since the files get deleted on a different
+	// goroutine.
+	<-time.After(10 * time.Millisecond)
+
+	filename2 := backupFile(dir)
+	existsWithContent(filename2, b1, t)
+	existsWithContent(filename, b2, t)
+	fileCount(dir, 2, t)
+	newFakeTime()
+
+	b3 := []byte("3\n")
+	n, err = l.Write(b3)
+	isNil(err, t)
+	equals(len(b3), n, t)
+	// we need to wait a little bit since the files get deleted on a different
+	// goroutine.
+	<-time.After(10 * time.Millisecond)
+
+	filename3 := backupFile(dir)
+	existsWithContent(filename3, b2, t)
+	existsWithContent(filename, b3, t)
+	fileCount(dir, 3, t)
+	newFakeTime()
+
+	b4 := []byte("4\n")
+	b5 := []byte("5\n")
+	n, err = l.Write(b4)
+	isNil(err, t)
+	equals(len(b4), n, t)
+	n, err = l.Write(b5)
+	isNil(err, t)
+	equals(len(b5), n, t)
+
+	newFakeTime()
+	existsWithContent(filename, []byte("4\n5\n"), t)
+}
+
 func TestCompressOnRotate(t *testing.T) {
 	currentTime = fakeTime
 	megabyte = 1

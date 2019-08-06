@@ -86,6 +86,16 @@ type Logger struct {
 	// rotated. It defaults to 100 megabytes.
 	MaxSize int `json:"maxsize" yaml:"maxsize"`
 
+	// MaxTime is the maximum duration before the log file is rotated. If MaxSize
+	// is reached before MaxTime, the file will be rotated "early." By default,
+	// there is no time-based rotation and MaxSize exclusively controls rotation
+	// frequency. Time is measured since the first write to a newly created file.
+	// On platforms which can not provide a file's creation time, files opened for
+	// appending by a new Logger will track MaxTime based on when the file was
+	// opened for writing (which may result in longer than expected rotation
+	// intervals).
+	MaxTime time.Duration `json:"maxtime" yaml:"maxtime"`
+
 	// MaxAge is the maximum number of days to retain old log files based on the
 	// timestamp encoded in their filename.  Note that a day is defined as 24
 	// hours and may not exactly correspond to calendar days due to daylight
@@ -107,9 +117,10 @@ type Logger struct {
 	// using gzip.
 	Compress bool `json:"compress" yaml:"compress"`
 
-	size int64
-	file *os.File
-	mu   sync.Mutex
+	size    int64
+	file    *os.File
+	mu      sync.Mutex
+	created time.Time
 
 	millCh    chan bool
 	startMill sync.Once
@@ -149,7 +160,9 @@ func (l *Logger) Write(p []byte) (n int, err error) {
 		}
 	}
 
-	if l.size+writeLen > l.max() {
+	tooBig := l.size+writeLen > l.max()
+	tooOld := l.MaxTime > 0 && currentTime().Sub(l.created) > l.MaxTime
+	if tooBig || tooOld {
 		if err := l.rotate(); err != nil {
 			return 0, err
 		}
@@ -238,6 +251,7 @@ func (l *Logger) openNew() error {
 	}
 	l.file = f
 	l.size = 0
+	l.created = currentTime()
 	return nil
 }
 
@@ -285,6 +299,7 @@ func (l *Logger) openExistingOrNew(writeLen int) error {
 	}
 	l.file = file
 	l.size = info.Size()
+	l.created = ctime(info)
 	return nil
 }
 
